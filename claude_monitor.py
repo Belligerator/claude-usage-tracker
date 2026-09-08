@@ -39,6 +39,14 @@ NOTIFY_THRESHOLDS = (95, 90, 75, 50)
 log = logging.getLogger("claude-usage")
 
 
+def _dedup_bucket(resets_at: object) -> object:
+    """Round a reset timestamp to the minute so per-fetch jitter in the
+    upstream value doesn't defeat the notified-window dedup key."""
+    if not isinstance(resets_at, (int, float)):
+        return resets_at
+    return round(resets_at / 60) * 60
+
+
 def setup_logging() -> None:
     LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     handler = RotatingFileHandler(LOG_PATH, maxBytes=256_000, backupCount=2)
@@ -215,7 +223,7 @@ class ClaudeUsageApp(rumps.App):
 
     def notify_forecast(self, forecast: dict) -> None:
         """Warn once per window that the current pace exhausts it before the reset."""
-        window_id = ("five_hour_forecast", forecast.get("resets_at"))
+        window_id = ("five_hour_forecast", _dedup_bucket(forecast.get("resets_at")))
         if window_id in self.notified:
             return
         self.notified[window_id] = 1
@@ -236,7 +244,7 @@ class ClaudeUsageApp(rumps.App):
 
     def maybe_notify(self, key: str, label: str, pct: float, resets_at: object) -> None:
         """Notify once per threshold per window; a new window starts over."""
-        window_id = (key, resets_at)
+        window_id = (key, _dedup_bucket(resets_at))
         reached = next((t for t in NOTIFY_THRESHOLDS if pct >= t), None)
         if reached is None:
             self.notified.pop(window_id, None)
