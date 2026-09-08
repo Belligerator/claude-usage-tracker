@@ -106,14 +106,14 @@ The status line is enabled in `~/.claude/settings.json`:
 ```json
 "statusLine": {
   "type": "command",
-  "command": "/Users/<USER>/dev/ai/claude-usage-tracker/claude_statusline.py",
+  "command": "/absolute/path/to/claude-usage-tracker/claude_statusline.py",
   "refreshInterval": 30
 }
 ```
 
 The menu bar app runs as a packaged `.app` (`setup.py`, `py2app`) at
 `~/Applications/Claude Usage Tracker.app` and starts itself on login via the
-LaunchAgent `~/Library/LaunchAgents/com.<USER>.claudeusagetracker.plist`. A
+LaunchAgent `~/Library/LaunchAgents/com.belligerator.claudeusagetracker.plist`. A
 packaged app is also required because `rumps` notifications don't work
 reliably outside a `.app` bundle (see Notifications below).
 
@@ -125,7 +125,7 @@ rm -rf build dist
 python3 setup.py py2app
 rm -rf ~/Applications/"Claude Usage Tracker.app"
 cp -R dist/"Claude Usage Tracker.app" ~/Applications/
-launchctl kickstart -k gui/$(id -u)/com.<USER>.claudeusagetracker
+launchctl kickstart -k gui/$(id -u)/com.belligerator.claudeusagetracker
 ```
 
 `launchctl kickstart -k` restarts the app, so the new build takes effect
@@ -136,14 +136,14 @@ immediately instead of waiting for the next login.
 It's already on (LaunchAgent with `RunAtLoad`). To turn it off:
 
 ```bash
-launchctl bootout gui/$(id -u)/com.<USER>.claudeusagetracker
-rm ~/Library/LaunchAgents/com.<USER>.claudeusagetracker.plist
+launchctl bootout gui/$(id -u)/com.belligerator.claudeusagetracker
+rm ~/Library/LaunchAgents/com.belligerator.claudeusagetracker.plist
 ```
 
 To turn it back on:
 
 ```bash
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.<USER>.claudeusagetracker.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.belligerator.claudeusagetracker.plist
 ```
 
 (the plist needs to exist on disk again - either don't delete it, or restore

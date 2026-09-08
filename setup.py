@@ -14,7 +14,7 @@ OPTIONS = {
     "plist": {
         "CFBundleName": "Claude Usage Tracker",
         "CFBundleDisplayName": "Claude Usage Tracker",
-        "CFBundleIdentifier": "com.dima.claudeusagetracker",
+        "CFBundleIdentifier": "com.belligerator.claudeusagetracker",
         "CFBundleShortVersionString": "1.0.0",
         "CFBundleVersion": "1.0.0",
         "LSUIElement": True,

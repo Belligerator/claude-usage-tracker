@@ -12,7 +12,7 @@ Enable it in ~/.claude/settings.json:
     {
       "statusLine": {
         "type": "command",
-        "command": "/Users/dima/dev/ai/claude-usage-tracker/claude_statusline.py",
+        "command": "/absolute/path/to/claude-usage-tracker/claude_statusline.py",
         "refreshInterval": 30
       }
     }
