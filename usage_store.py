@@ -151,6 +151,19 @@ def append_history(previous: list | None, rate_limits: dict, now: float) -> list
     return history[-HISTORY_LIMIT:]
 
 
+def _window_bucket(resets_at: object) -> object:
+    """Round a reset timestamp to the minute for window-identity comparisons.
+
+    The upstream API returns `resets_at` with a bit of per-fetch jitter
+    (fractions of a second), so comparing it for exact equality across two
+    fetches of the same window almost never matches - rounding collapses
+    that jitter while a real window rollover (hours away) still differs.
+    """
+    if not isinstance(resets_at, (int, float)):
+        return resets_at
+    return round(resets_at / 60) * 60
+
+
 def burn_rate(
     history: list | None, key: str, resets_at: object, current_pct: float, now: float
 ) -> float | None:
@@ -164,12 +177,13 @@ def burn_rate(
     """
     if not isinstance(resets_at, (int, float)):
         return None
+    bucket = _window_bucket(resets_at)
 
     samples = sorted(
         (
             s
             for s in (history or [])
-            if s.get(f"{key}_reset") == resets_at
+            if _window_bucket(s.get(f"{key}_reset")) == bucket
             and isinstance(s.get(key), (int, float))
             and isinstance(s.get("t"), (int, float))
         ),
