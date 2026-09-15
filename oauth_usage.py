@@ -75,6 +75,24 @@ def _window(payload: dict, key: str) -> dict | None:
     return {"used_percentage": float(raw["utilization"]), "resets_at": _iso_to_epoch(raw.get("resets_at"))}
 
 
+def _ssl_context() -> ssl.SSLContext:
+    """A verifying context built from certifi's CA bundle, read as data.
+
+    Inside the py2app bundle certifi lives in a zip, so `certifi.where()` has
+    to extract cacert.pem to a temp file, and it caches that path in a module
+    global for the life of the process. macOS eventually purges /var/folders,
+    which leaves a long-running menu bar app pointing at a file that no longer
+    exists - every later fetch then dies on a FileNotFoundError that no restart
+    of the timer can clear. Loading the PEM as `cadata` keeps the certificates
+    in memory and never touches the filesystem again.
+    """
+    try:
+        import certifi
+        return ssl.create_default_context(cadata=certifi.contents())
+    except (ImportError, OSError, ValueError, ssl.SSLError):
+        return ssl.create_default_context()  # fall back to the system trust store
+
+
 def _fetch() -> dict | None:
     """One live HTTP call. None on any failure - callers fall back to the cache."""
     token = _token()
@@ -86,12 +104,7 @@ def _fetch() -> dict | None:
     })
     token = None
     try:
-        import certifi
-        ctx = ssl.create_default_context(cafile=certifi.where())
-    except ImportError:
-        ctx = ssl.create_default_context()
-    try:
-        with build_opener(_NoRedirect, HTTPSHandler(context=ctx)).open(req, timeout=5) as resp:
+        with build_opener(_NoRedirect, HTTPSHandler(context=_ssl_context())).open(req, timeout=5) as resp:
             payload = json.loads(resp.read(1024 * 1024))
     except (HTTPError, URLError, ValueError, OSError):
         return None
