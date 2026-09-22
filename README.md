@@ -53,6 +53,7 @@ two sessions appending a sample each would clobber one another.
   history/burn-rate/ETA helpers (`burn_rate`, `exhaustion_eta`) used by both
   scripts.
 * `setup.py` - `py2app` config to package `claude_monitor.py` into a `.app`.
+* `install.sh` - build, install and start it, in one command.
 
 ## Auto-starting the 5-hour window
 
@@ -137,6 +138,25 @@ last cache instead of trying to fix the token itself.
 ## Installation
 
 ```bash
+./install.sh
+```
+
+That installs the dependencies, builds the `.app`, replaces the copy in
+`~/Applications`, writes the LaunchAgent and starts it - in an order that
+doesn't copy over a bundle the running app still has open. It also refuses to
+install a build whose `python*.zip` is missing one of this project's modules,
+because py2app silently drops a module it can't reach from the import graph
+and the only symptom is a menu bar icon that never appears.
+
+`./install.sh --statusline` additionally points Claude Code's status line at
+this checkout, and leaves an existing `statusLine` pointing elsewhere alone.
+`./install.sh --uninstall` stops the app and removes it and the LaunchAgent,
+keeping the cache and the log.
+
+The rest of this section is what the script does, for when you'd rather do it
+by hand.
+
+```bash
 pip3 install -r requirements.txt
 ```
 
@@ -157,6 +177,8 @@ packaged app is also required because `rumps` notifications don't work
 reliably outside a `.app` bundle (see Notifications below).
 
 ### Building / updating the app after a code change
+
+`./install.sh` again, or by hand:
 
 ```bash
 pip3 install py2app   # first time only
