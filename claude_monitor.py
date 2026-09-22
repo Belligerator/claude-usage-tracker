@@ -7,6 +7,9 @@ API (see oauth_usage.py) - a live call this app makes itself, on its own
 stays accurate no matter which interface (terminal, VS Code agent panel,
 VS Code chat) you actually used it from - or if you didn't use it at all.
 
+It also opens a fresh 5-hour window when none is running (see
+claude_ping.py), so the limit clock is not still stopped when you sit down.
+
 Run with:  python3 claude_monitor.py
 """
 from __future__ import annotations
@@ -20,6 +23,7 @@ from logging.handlers import RotatingFileHandler
 import rumps
 from PyObjCTools import AppHelper
 
+import claude_ping
 import oauth_usage
 from usage_store import (
     LOG_PATH,
@@ -60,6 +64,7 @@ class ClaudeUsageApp(rumps.App):
         super().__init__("Claude ⏳", quit_button="Quit")
         self.notified: dict[tuple[str, object], int] = {}
         self.fetching = False
+        self.pinging = False
         self.last_attempt = 0.0
         self.items = {
             key: rumps.MenuItem(title)
@@ -69,8 +74,11 @@ class ClaudeUsageApp(rumps.App):
                 ("spend_limit", "Spend limit: –"),
                 ("rate", "Rate: –"),
                 ("age", "Updated: –"),
+                ("ping", "Last ping: –"),
             )
         }
+        self.auto_item = rumps.MenuItem("Auto-start 5h window", callback=self.on_toggle_auto)
+        self.auto_item.state = 1 if claude_ping.enabled() else 0
         self.menu = [
             self.items["five_hour"],
             self.items["seven_day"],
@@ -79,6 +87,9 @@ class ClaudeUsageApp(rumps.App):
             self.items["rate"],
             None,
             self.items["age"],
+            None,
+            self.auto_item,
+            self.items["ping"],
             None,
             rumps.MenuItem("Refresh now", callback=self.on_refresh),
             rumps.MenuItem("Open log", callback=self.on_open_log),
@@ -94,6 +105,11 @@ class ClaudeUsageApp(rumps.App):
 
     def on_open_log(self, _) -> None:
         subprocess.run(["open", "-t", str(LOG_PATH)], check=False)
+
+    def on_toggle_auto(self, item) -> None:
+        item.state = 0 if item.state else 1
+        claude_ping.set_enabled(bool(item.state))
+        log.info("auto-start %s", "enabled" if item.state else "disabled")
 
     # -- rendering -------------------------------------------------------
 
@@ -138,14 +154,62 @@ class ClaudeUsageApp(rumps.App):
         AppHelper.callAfter(self.on_fetched)
 
     def on_fetched(self) -> None:
-        """Repaint once a fetch lands. Never starts another one - no retry loop."""
+        """Repaint once a fetch lands, and decide about a ping off that payload.
+
+        A failed fetch never retries from here, but a ping does force one - that
+        is how the newly opened window gets picked up without waiting out the
+        five-minute cache.
+        """
         try:
-            self.update(oauth_usage.cached())
+            cache = oauth_usage.cached()
+            self.update(cache)
+            self.maybe_ping(cache)
         except Exception:  # noqa: BLE001 - an AppKit callback must never die
             log.exception("repaint failed")
             self.title = "Claude ⚠️"
 
+    # -- opening a window ------------------------------------------------
+
+    def maybe_ping(self, data: dict | None) -> None:
+        """Start a 5-hour window when none is running.
+
+        Only ever off a payload this fetch actually refreshed: a failed fetch
+        leaves the previous one in place, and an old "no window running" would
+        have us pinging while offline, for nothing.
+        """
+        if self.pinging or data is None or oauth_usage.is_stale(data):
+            return
+        if not claude_ping.can_ping(data.get("rate_limits") or {}, time.time()):
+            return
+        self.pinging = True
+        threading.Thread(target=self.ping_worker, daemon=True).start()
+
+    def ping_worker(self) -> None:
+        try:
+            ok, detail = claude_ping.send(time.time())
+            if ok:
+                log.info("ping sent - 5h window should now be running")
+            else:
+                log.warning("ping failed: %s", detail)
+        except Exception:  # noqa: BLE001 - a worker must never die unlogged
+            log.exception("ping failed")
+        finally:
+            self.pinging = False
+        AppHelper.callAfter(self.on_pinged)
+
+    def on_pinged(self) -> None:
+        """Pull the new window in rather than wait out the five-minute cache.
+
+        The forced fetch is also the only check that the ping did anything: if
+        `resets_at` is still empty afterwards, the window never opened.
+        """
+        try:
+            self.refresh(None, force=True)
+        except Exception:  # noqa: BLE001 - an AppKit callback must never die
+            log.exception("repaint after ping failed")
+
     def update(self, data: dict | None) -> None:
+        self.update_ping_status()
         if data is None:
             self.title = "Claude ⏳"
             for key in ("five_hour", "seven_day", "spend_limit"):
@@ -162,6 +226,14 @@ class ClaudeUsageApp(rumps.App):
         self.title = self.build_title(rate_limits, forecast)
         if forecast.get("critical"):
             self.notify_forecast(forecast)
+
+    def update_ping_status(self) -> None:
+        at, detail = claude_ping.last_ping()
+        if at is None:
+            self.items["ping"].title = "Last ping: never"
+            return
+        clock = time.strftime("%H:%M", time.localtime(at))
+        self.items["ping"].title = f"Last ping: {clock} ({detail[:40] or '?'})"
 
     def update_windows(self, rate_limits: dict) -> None:
         for key, label in WINDOW_LABELS.items():

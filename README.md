@@ -47,10 +47,49 @@ two sessions appending a sample each would clobber one another.
   never `claude_statusline.py`.
 * `oauth_usage.py` - the live call to Anthropic's API plus a 5-minute disk
   cache.
+* `claude_ping.py` - opens a 5-hour window when none is running, by sending
+  one tiny prompt through the `claude` CLI. Used only by the menu bar app.
 * `usage_store.py` - shared paths, atomic writes, formatting, and the
   history/burn-rate/ETA helpers (`burn_rate`, `exhaustion_eta`) used by both
   scripts.
 * `setup.py` - `py2app` config to package `claude_monitor.py` into a `.app`.
+
+## Auto-starting the 5-hour window
+
+The 5-hour limit window starts with your **first request**, not with the
+clock. Idle overnight and the clock is still stopped when you sit down: start
+at 09:00, exhaust the window at 11:00, and the reset is at 14:00 - where a
+window opened at 07:00 would have had you waiting only until 12:00. The quota
+is a bucket rather than a rate, so this does not earn you extra quota; it
+moves the wait after a burnout earlier.
+
+`claude_ping.py` sends one `claude -p` request whenever the usage payload says
+no window is running. The menu bar's **Auto-start 5h window** item turns it off
+without quitting the app, and **Last ping** shows the outcome - a successful
+ping is otherwise invisible.
+
+* **The trigger** is `five_hour.resets_at` being `null`. Not `used_percentage
+  == 0`: a window can be running and untouched, and those are not the same
+  state. A `five_hour` that is missing or malformed counts as "don't know" and
+  never pings, so a change to the upstream payload cannot read as a
+  permanently idle window.
+* **One ping per 30 minutes at most**, on top of that. A window lasts five
+  hours, so the cooldown never delays a legitimate ping - it only caps a
+  runaway at 48 requests a day instead of 288.
+* **It never pings at 100 % of the 7-day window**, where the request would be
+  rejected and nothing would start.
+* **Cost**: measured at under one percentage point of the 5-hour window, i.e.
+  below the resolution the usage API reports. It runs in an empty scratch
+  directory so no `CLAUDE.md` or project context is loaded.
+* **It works on a sleeping Mac.** With Power Nap on, macOS dark-wakes every
+  few minutes for about 45 seconds and the app's timer runs inside that; a
+  ping measures ~3 s.
+* **Finding the CLI.** A packaged `.app` is started by launchd with no `PATH`
+  of its own, so it only sees `/usr/bin:/bin:/usr/sbin:/sbin` - where `claude`
+  never is. `claude_ping.binary()` searches `~/.local/bin`, `~/.claude/local`
+  and the Homebrew prefixes, and re-resolves on every call because the
+  installed path is a symlink into a versioned directory that each Claude Code
+  update replaces.
 
 ## How `oauth_usage.py` works
 
